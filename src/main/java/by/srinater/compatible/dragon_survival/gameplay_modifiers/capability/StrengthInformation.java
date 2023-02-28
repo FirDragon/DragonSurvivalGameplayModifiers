@@ -24,26 +24,29 @@ import java.util.function.Supplier;
 public class StrengthInformation implements ICapabilitySerializable<CompoundTag>, IMessage<StrengthInformation> {
     public static Capability<StrengthInformation> STRENGTH_CAPABILITY = CapabilityManager.get(new CapabilityToken<>() {});
     private final LazyOptional<StrengthInformation> instance = LazyOptional.of(() -> this);
-    public double stamina = 500;
-    public double maxStamina = 500;
-    public boolean isFly = false;
-    public double prevY = 0.0;
-    public boolean hasWing = true;
+    public double strength = 100;
+    public final double MaxStrength = 100;
+    public double multiplier = 1;
+    public boolean falling = false;
 
     @Override
     public void encode(StrengthInformation strengthInformation, FriendlyByteBuf friendlyByteBuf) {
-        friendlyByteBuf.writeDouble(strengthInformation.stamina);
-        friendlyByteBuf.writeDouble(strengthInformation.maxStamina);
+        friendlyByteBuf.writeDouble(strengthInformation.strength);
+        friendlyByteBuf.writeDouble(strengthInformation.multiplier);
+        friendlyByteBuf.writeBoolean(strengthInformation.falling);
     }
     @Override
     public StrengthInformation decode(FriendlyByteBuf friendlyByteBuf) {
-        this.stamina = friendlyByteBuf.readDouble();
-        this.maxStamina = friendlyByteBuf.readDouble();
+        this.strength = friendlyByteBuf.readDouble();
+        this.multiplier = friendlyByteBuf.readDouble();
+        this.falling = friendlyByteBuf.readBoolean();
         return this;
     }
     @Override
     public void handle(StrengthInformation strengthInformation, Supplier<NetworkEvent.Context> supplier) {
-        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> (DistExecutor.SafeRunnable)() -> run(strengthInformation, supplier));
+        DistExecutor.unsafeRunWhenOn(Dist.CLIENT, () -> (DistExecutor.SafeRunnable)() -> {
+            run(strengthInformation, supplier);
+        });
     }
     @OnlyIn( Dist.CLIENT )
     public void run(StrengthInformation information, Supplier<NetworkEvent.Context> supplier) {
@@ -70,8 +73,9 @@ public class StrengthInformation implements ICapabilitySerializable<CompoundTag>
     }
     public static CompoundTag serializeNBT(StrengthInformation information) {
         CompoundTag tag = new CompoundTag();
-        tag.putDouble("stamina", information.stamina);
-        tag.putDouble("maxStamina", information.maxStamina);
+        tag.putDouble("stamina", information.strength);
+        tag.putDouble("stamina_multiplier", information.multiplier);
+        tag.putBoolean("falling", information.falling);
         return tag;
     }
 
@@ -80,15 +84,27 @@ public class StrengthInformation implements ICapabilitySerializable<CompoundTag>
         deserializeNBT(this, nbt);
     }
     public void copyFrom(StrengthInformation information){
-        this.stamina = information.stamina;
-        this.maxStamina = information.maxStamina;
+        this.strength = information.strength;
+        this.multiplier = information.multiplier;
+        this.falling = information.falling;
     }
     public static void deserializeNBT(StrengthInformation information,CompoundTag nbt) {
-        information.stamina = nbt.getDouble("stamina");
-        information.maxStamina = nbt.getDouble("maxStamina");
+        information.strength = nbt.getDouble("stamina");
+        information.multiplier = nbt.getDouble("stamina_multiplier");
+        information.falling = nbt.getBoolean("falling");
     }
     public static LazyOptional<StrengthInformation> getCap(Entity entity)
     {
         return entity.getCapability(STRENGTH_CAPABILITY);
+    }
+
+    public boolean isTired()
+    {
+        return strength / (MaxStrength * multiplier) < 0.2;
+    }
+
+    public double maxStrength()
+    {
+        return MaxStrength * multiplier;
     }
 }

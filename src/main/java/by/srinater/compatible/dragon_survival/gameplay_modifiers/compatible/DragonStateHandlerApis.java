@@ -52,5 +52,9 @@ public class DragonStateHandlerApis {
             dragonStateHandler.setHasWings(has);
         });
     }
-
+    public static boolean IsFlight(Object dragonStateHandler)
+    {
+        DragonStateHandler _dragonStateHandler = (DragonStateHandler)dragonStateHandler;
+        return _dragonStateHandler.hasWings() && _dragonStateHandler.isWingsSpread();
+    }
 }

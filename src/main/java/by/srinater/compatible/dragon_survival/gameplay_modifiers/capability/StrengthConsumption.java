@@ -1,12 +1,15 @@
 package by.srinater.compatible.dragon_survival.gameplay_modifiers.capability;
 
-import by.dragonsurvivalteam.dragonsurvival.common.capability.DragonStateHandler;
 import by.dragonsurvivalteam.dragonsurvival.common.capability.DragonStateProvider;
 import by.dragonsurvivalteam.dragonsurvival.util.DragonUtils;
+import by.srinater.compatible.dragon_survival.gameplay_modifiers.GameplayModifiers;
 import by.srinater.compatible.dragon_survival.gameplay_modifiers.compatible.DragonStateHandlerApis;
 import by.srinater.compatible.dragon_survival.gameplay_modifiers.network.Register;
+import net.minecraft.network.chat.TranslatableComponent;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.effect.MobEffectInstance;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.phys.Vec3;
@@ -24,7 +27,7 @@ public class StrengthConsumption {
 
     @SubscribeEvent
     public static void attachCapabilities(AttachCapabilitiesEvent<Entity> event){
-        if (!(event.getObject() instanceof Player player))
+        if (!(event.getObject() instanceof Player))
             return;
         LOGGER.info("Attach capabilities.");
         StrengthInformation provider = new StrengthInformation();
@@ -61,87 +64,96 @@ public class StrengthConsumption {
         );
         original.invalidateCaps();
     }
-    public static void onHumansTick(Player player)
+    public static boolean IsLanding(Player player)
+    {
+        return player.isOnGround() || player.isInLava() || player.isInWaterRainOrBubble();
+    }
+    private static double CalculateStrength(boolean isFlight, boolean isSprinting, Vec3 movement)
+    {
+        double verticalSpeed = movement.y;
+        if (movement.y < -0.25)
+            verticalSpeed = -0.25;
+
+        // 固定消耗为0.1
+        double strengthFloat = 0.1;
+        // 飞行过程中
+        if (isFlight) {
+            // 计算爬升高度与体力消耗
+            if (movement.length() == 0)
+                strengthFloat += 0.5;
+            else
+                strengthFloat += (verticalSpeed + 0.25) / (movement.length());
+            // 悬停追加消耗
+            if (!isSprinting)
+                strengthFloat += 2;
+            //疾跑消耗
+        }else if(isSprinting){
+            strengthFloat = 1;
+        }else // 休息时的消耗（补充体力）
+            strengthFloat = -1;
+        return strengthFloat;
+    }
+    public static void onHumansTick(ServerPlayer player)
     {
         StrengthInformation.getCap(player).ifPresent(
-            strengthInformation -> {
-                if (player.isSprinting())
+            strengthInfo -> {
+                strengthInfo.strength -= CalculateStrength(false, player.isSprinting(), player.getDeltaMovement());
+                if (strengthInfo.strength < 0)
                 {
-                    if (strengthInformation.stamina > 0)
-                        --strengthInformation.stamina;
-                    else
-                        player.setSprinting(false);
-                }else {
-                    if (strengthInformation.stamina < strengthInformation.maxStamina)
-                        ++strengthInformation.stamina;
+                    strengthInfo.strength = 0;
+                    player.setSprinting(false);
+                    player.sendMessage(new TranslatableComponent("tips.exhausted"), GameplayModifiers.TIPS_UUID);
+                }else if(strengthInfo.strength > strengthInfo.maxStrength()){
+                    strengthInfo.strength = strengthInfo.maxStrength();
                 }
             }
         );
     }
-    public static boolean IsTired(StrengthInformation strength)
-    {
-        return (double)strength.stamina / strength.maxStamina < 0.2;
-    }
-    public static boolean IsFlight(Player player, Object dragonStateHandler)
-    {
-        DragonStateHandler _dragonStateHandler = (DragonStateHandler)dragonStateHandler;
-        return _dragonStateHandler.hasWings() && _dragonStateHandler.isWingsSpread() && !player.isOnGround();
-    }
-    private static double CalculateStrength(boolean isSprinting, Vec3 movement)
-    {
-        double horizontalSpeed = movement.y;
-        if (movement.y < -0.25)
-            horizontalSpeed = -0.25;
-
-        return (horizontalSpeed + 0.25) / (movement.length()) + 0.1 + (isSprinting ? 0 : 2);
-    }
-    public static void onDragonTick(Player player)
+    public static void onDragonTick(ServerPlayer player)
     {
         DragonStateProvider.getCap(player).ifPresent(
             dragonStateHandler -> StrengthInformation.getCap(player).ifPresent(
                 strength -> {
-                    // 取消飞行时体力不足将一段时间无法打开翅膀
-                    if (strength.isFly && !IsFlight(player, dragonStateHandler) && IsTired(strength))
+                    boolean isLanding = IsLanding(player);
+                    if (strength.falling)
                     {
-                        DragonStateHandlerApis.setHasWings(player, false);
+                        if (isLanding) {
+                            strength.falling = false;
+                            player.removeEffect(MobEffects.SLOW_FALLING);
+                        }else
+                            return;
+                    }
+                    boolean isFlight = DragonStateHandlerApis.IsFlight(dragonStateHandler) && !isLanding;
+                    Vec3 movement = player.getDeltaMovement();
+                    strength.strength -= CalculateStrength(isFlight, player.isSprinting(), movement);
+                    if (strength.strength < 0) {
+                        strength.strength = 0;
                         DragonStateHandlerApis.setWingsSpread(player, false);
-                    }
-                    // 没在飞行时体力恢复后可再次飞行
-                    if (!dragonStateHandler.hasWings() && !IsFlight(player, dragonStateHandler) && !IsTired(strength))
-                        DragonStateHandlerApis.setHasWings(player, true);
-
-                    // 在飞行时体力消耗，没在飞行时体力恢复
-                    if (IsFlight(player, dragonStateHandler))
-                    {
-                        if (strength.stamina > 0)
-                        {
-                            Vec3 movement = player.getDeltaMovement();
-                            strength.stamina -= CalculateStrength(player.isSprinting(), movement);
-                        }
-                        else {
-                            DragonStateHandlerApis.setHasWings(player, false);
-                            DragonStateHandlerApis.setWingsSpread(player, false);
-                        }
-                    }else {
-                        if (strength.stamina < strength.maxStamina)
-                            ++strength.stamina;
-                    }
-                    strength.isFly = IsFlight(player, dragonStateHandler);
+                        strength.falling = true;
+                        player.addEffect(new MobEffectInstance(MobEffects.SLOW_FALLING, 15 * 20, 0, false, false, true));
+                        player.sendMessage(new TranslatableComponent("tips.exhausted"), GameplayModifiers.TIPS_UUID);
+                    }else if(strength.strength > strength.maxStrength())
+                        strength.strength = strength.maxStrength();
                 }
             )
         );
-
     }
     @SubscribeEvent
     public static void onPlayerTick(TickEvent.PlayerTickEvent tickEvent)
     {
         if (tickEvent.phase != TickEvent.Phase.END)
             return;
-
-        if (!DragonStateHandlerApis.haveDragonSurvival() || !DragonUtils.isDragon(tickEvent.player))
-            onHumansTick(tickEvent.player);
+        if (!(tickEvent.player instanceof ServerPlayer serverPlayer))
+            return;
+        if (tickEvent.player.tickCount % 5 != 0)
+            return;
+        if (tickEvent.player.isCreative())
+            return;
+        if (!DragonStateHandlerApis.haveDragonSurvival() || !DragonUtils.isDragon(serverPlayer))
+            onHumansTick(serverPlayer);
         else{
-            onDragonTick(tickEvent.player);
+            onDragonTick(serverPlayer);
         }
+        syncPlayerInformation(serverPlayer);
     }
 }

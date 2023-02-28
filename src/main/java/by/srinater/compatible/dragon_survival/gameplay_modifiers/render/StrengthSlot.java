@@ -2,6 +2,7 @@ package by.srinater.compatible.dragon_survival.gameplay_modifiers.render;
 
 import by.dragonsurvivalteam.dragonsurvival.common.capability.DragonStateProvider;
 import by.dragonsurvivalteam.dragonsurvival.util.DragonUtils;
+import by.srinater.compatible.dragon_survival.gameplay_modifiers.capability.StrengthConsumption;
 import by.srinater.compatible.dragon_survival.gameplay_modifiers.capability.StrengthInformation;
 import by.srinater.compatible.dragon_survival.gameplay_modifiers.compatible.DragonStateHandlerApis;
 import com.mojang.blaze3d.platform.Window;
@@ -18,7 +19,6 @@ import net.minecraftforge.client.gui.ForgeIngameGui;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
 import net.minecraftforge.fml.common.Mod;
 
-import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static by.srinater.compatible.dragon_survival.gameplay_modifiers.GameplayModifiers.LOGGER;
@@ -31,14 +31,14 @@ public class StrengthSlot {
     private static final int BarIndex = 0;
     private static final int SlotIndex = 1;
     private static final int MovementIndex = 2;
-    private static final int ImageWidth = 81;
+    private static final int ImageWidth = 70;
     private static final int ImageHeight = 24;
     public static void renderStrengthSlot(ForgeIngameGui gui, PoseStack poseStack, float partialTick, int width, int height)
     {
         renderRightHeight = gui.right_height;
         gui.right_height += 10;
         RenderSystem.setShaderTexture(0, STRENGTH_ICONS);
-        Screen.blit(poseStack, width / 2 + 10, height - renderRightHeight, 0, 8 * SlotIndex, 80, 8,ImageWidth, ImageHeight);
+        Screen.blit(poseStack, width / 2 + 20, height - renderRightHeight, 0, 8 * SlotIndex, ImageWidth, 8,ImageWidth, ImageHeight);
         RenderSystem.setShaderTexture(0, Gui.GUI_ICONS_LOCATION);
     }
     public static int tick = 0;
@@ -69,16 +69,19 @@ public class StrengthSlot {
                 if (DragonStateHandlerApis.haveDragonSurvival() && DragonUtils.isDragon(player)) {
                     DragonStateProvider.getCap(player).ifPresent(
                         dragonStateHandler -> {
-                            movement.set(dragonStateHandler.isWingsSpread()?1:0);
+                            movement.set(
+                                DragonStateHandlerApis.IsFlight(dragonStateHandler)
+                                && !StrengthConsumption.IsLanding(player)
+                                    ? 1 : 0
+                            );
                         }
                     );
                 }else
                     movement.set(player.isSprinting()?3:2);
                 event.getMatrixStack().pushPose();
                 RenderSystem.setShaderTexture(0, STRENGTH_ICONS);
-                OutputInTick(String.format("%s: ,stamina: %f,max stamina: %f", player.toString(), strengthInformation.stamina, strengthInformation.maxStamina));
-                Screen.blit(event.getMatrixStack(), left, top, movement.get() * 8, 8 * MovementIndex, 8, 8, ImageWidth, ImageHeight);
-                Screen.blit(event.getMatrixStack(), left + 10, top, 0, 8 * BarIndex, (int)(ImageWidth * ((double)strengthInformation.stamina / strengthInformation.maxStamina)), 8, ImageWidth, ImageHeight);
+                Screen.blit(event.getMatrixStack(), left + 10, top, movement.get() * 8, 8 * MovementIndex, 8, 8, ImageWidth, ImageHeight);
+                Screen.blit(event.getMatrixStack(), left + 20, top, 0, 8 * BarIndex, (int)(ImageWidth * (strengthInformation.strength / (strengthInformation.multiplier * strengthInformation.MaxStrength))), 8, ImageWidth, ImageHeight);
                 event.getMatrixStack().popPose();
             }
         );
